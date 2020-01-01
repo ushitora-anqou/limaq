@@ -131,6 +131,15 @@ func printStatus() error {
 	return nil
 }
 
+func setCgroupAttrs(cgpath string, attrs map[string]interface{}) error {
+	var args []string
+	for key, value := range attrs {
+		args = append(args, "-r", fmt.Sprintf("%s=%v", key, value))
+	}
+	args = append(args, cgpath)
+	return execCmd("cgset", args...)
+}
+
 func doRun(ncores float64, memmb float64) error {
 	const cfsPeriod = 100000
 	var err error
@@ -148,18 +157,11 @@ func doRun(ncores float64, memmb float64) error {
 	}
 	defer execCmd("cgdelete", "-r", cgcntpath)
 
-	err = execCmd("cgset", "-r", fmt.Sprintf("cpu.cfs_period_us=%d", cfsPeriod), cgpath)
-	if err != nil {
-		return err
-	}
-	err = execCmd("cgset",
-		"-r", fmt.Sprintf("cpu.cfs_quota_us=%d", int(cfsPeriod*ncores)), cgpath)
-	if err != nil {
-		return err
-	}
-
-	err = execCmd("cgset",
-		"-r", fmt.Sprintf("memory.limit_in_bytes=%d", int(memmb*1000000)), cgpath)
+	err = setCgroupAttrs(cgpath, map[string]interface{}{
+		"cpu.cfs_period_us":     cfsPeriod,
+		"cpu.cfs_quota_us":      int(cfsPeriod * ncores),
+		"memory.limit_in_bytes": int(memmb * 1000000),
+	})
 	if err != nil {
 		return err
 	}
