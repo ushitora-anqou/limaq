@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jaypipes/ghw"
 )
 
 const parentCgroup = "limaqcgroup"
@@ -130,7 +131,7 @@ func printStatus() error {
 	return nil
 }
 
-func doRun(ncores float64) error {
+func doRun(ncores float64, memmb float64) error {
 	const cfsPeriod = 100000
 	var err error
 
@@ -156,6 +157,13 @@ func doRun(ncores float64) error {
 	if err != nil {
 		return err
 	}
+
+	err = execCmd("cgset",
+		"-r", fmt.Sprintf("memory.limit_in_bytes=%d", int(memmb*1000000)), cgpath)
+	if err != nil {
+		return err
+	}
+
 	err = execCmd("cgexec",
 		append([]string{"-g", cgcntpath}, flag.Args()...)...)
 	if err != nil {
@@ -198,7 +206,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	ncores := flag.Float64("cpu", 1., "#cores of CPU you want to use")
+	cpu, err := ghw.CPU()
+	if err != nil {
+		panic(err)
+	}
+	memory, err := ghw.Memory()
+	if err != nil {
+		panic(err)
+	}
+
+	ncores := flag.Float64("cpu", float64(cpu.TotalCores),
+		"#cores of CPU you want to use")
+	memmb := flag.Float64("mem", float64(memory.TotalPhysicalBytes)/1000000,
+		"Memory size in MB you want to use")
 	verbose := flag.Bool("verbose", false, "Verbose mode")
 	showStatus := flag.Bool("stat", false, "Show status")
 	pruneCgroups := flag.Bool("prune", false, "Remove inactive cgroups")
@@ -224,7 +244,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = doRun(*ncores); err != nil {
+	if flagVerbose {
+		fmt.Fprintf(os.Stderr, "CPU:\t%f cores\n", *ncores)
+		fmt.Fprintf(os.Stderr, "Memory:\t%f MB\n", *memmb)
+	}
+
+	if err = doRun(*ncores, *memmb); err != nil {
 		panic(err)
 	}
 }
