@@ -24,7 +24,7 @@ func getCgroupPath(subname string) string {
 }
 
 func prefixCgroupCnt(path string) string {
-	return fmt.Sprintf("memory,cpu:%s", path)
+	return fmt.Sprintf("blkio,memory,cpu:%s", path)
 }
 
 func execCmd(name string, args ...string) error {
@@ -140,7 +140,7 @@ func setCgroupAttrs(cgpath string, attrs map[string]interface{}) error {
 	return execCmd("cgset", args...)
 }
 
-func doRun(ncores float64, memmb float64) error {
+func doRun(ncores float64, memmb float64, ioWeight int) error {
 	const cfsPeriod = 100000
 	var err error
 
@@ -161,6 +161,7 @@ func doRun(ncores float64, memmb float64) error {
 		"cpu.cfs_period_us":     cfsPeriod,
 		"cpu.cfs_quota_us":      int(cfsPeriod * ncores),
 		"memory.limit_in_bytes": int(memmb * 1000000),
+		"blkio.weight":          ioWeight,
 	})
 	if err != nil {
 		return err
@@ -204,7 +205,7 @@ func main() {
 		if err != nil {
 			panic(errors.New("Can't get current user"))
 		}
-		fmt.Fprintf(os.Stderr, "cgroups is not available. Maybe you should run:\n\n\t# cgcreate -a %s -t %s -g memory,cpu:%s\n\nto create the parent cgroup.\n", user.Username, user.Username, parentCgroup)
+		fmt.Fprintf(os.Stderr, "cgroups is not available. Maybe you should run:\n\n\t# cgcreate -a %s -t %s -g blkio,memory,cpu:%s\n\nto create the parent cgroup.\n", user.Username, user.Username, parentCgroup)
 		os.Exit(1)
 	}
 
@@ -221,6 +222,8 @@ func main() {
 		"#cores of CPU you want to use")
 	memmb := flag.Float64("mem", float64(memory.TotalPhysicalBytes)/1000000,
 		"Memory size in MB you want to use")
+	ioWeight := flag.Int("io", 1000,
+		"Relative weight of block I/O access from 100 to 1000")
 	verbose := flag.Bool("verbose", false, "Verbose mode")
 	showStatus := flag.Bool("stat", false, "Show status")
 	pruneCgroups := flag.Bool("prune", false, "Remove inactive cgroups")
@@ -246,12 +249,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *ioWeight < 100 || *ioWeight > 1000 {
+		fmt.Fprintf(os.Stderr, "I/O weight should be in the range of from 100 to 1000\n")
+		os.Exit(1)
+	}
+
 	if flagVerbose {
 		fmt.Fprintf(os.Stderr, "CPU:\t%f cores\n", *ncores)
 		fmt.Fprintf(os.Stderr, "Memory:\t%f MB\n", *memmb)
+		fmt.Fprintf(os.Stderr, "I/O Weight:\t%d\n", *ioWeight)
 	}
 
-	if err = doRun(*ncores, *memmb); err != nil {
+	if err = doRun(*ncores, *memmb, *ioWeight); err != nil {
 		panic(err)
 	}
 }
